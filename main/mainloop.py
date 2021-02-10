@@ -75,9 +75,13 @@ def rtc_set_alarm_period_s(alarm_period_s):
         _rtc_next_alarm_time_s = 0  # cancel the alarm
 
 
+_rtc_callback_seconds = 0  # can be used to stay awake for X seconds after the last RTC wakeup
+
+
 def rtc_callback(unknown):
     # NB: You cannot do anything that allocates memory in this interrupt handler.
     global _rtc_callback_flag
+    global _rtc_callback_seconds
     global _rtc_alarm_period_s
     global _rtc_next_alarm_time_s
     # RTC Callback function -
@@ -85,6 +89,7 @@ def rtc_callback(unknown):
     # Only set flag if it is alarm time
     if 0 < _rtc_next_alarm_time_s <= utime.time():
         _rtc_callback_flag = True
+        _rtc_callback_seconds = utime.time()
         _rtc_next_alarm_time_s = _rtc_next_alarm_time_s + _rtc_alarm_period_s  # keep the period consistent
 
 
@@ -115,6 +120,7 @@ def run_mainloop():
     """Standard Interface for MainLoop. Never returns."""
 
     global _rtc_callback_flag
+    global _rtc_callback_seconds
     global _nm3_callback_flag
     global _nm3_callback_seconds
     global _nm3_callback_millis
@@ -125,11 +131,29 @@ def run_mainloop():
 
     # Now if anything causes us to crashout from here we will reboot automatically.
 
-    # https://pybd.io/hw/pybd_sfxw.html
-    # The CPU frequency can be set to any multiple of 2MHz between 48MHz and 216MHz, via machine.freq(<freq>).
-    # By default the SF2 model runs at 120MHz and the SF6 model at 144MHz in order to conserve electricity.
-    # It is possible to go below 48MHz but then the WiFi cannot be used.
-    machine.freq(48000000)  # Set to lowest usable frequency
+    # Last reset cause
+    last_reset_cause = "PWRON_RESET"
+    if machine.reset_cause() == machine.PWRON_RESET:
+        last_reset_cause = "PWRON_RESET"
+    elif machine.reset_cause() == machine.HARD_RESET:
+        last_reset_cause = "HARD_RESET"
+    elif machine.reset_cause() == machine.WDT_RESET:
+        last_reset_cause = "WDT_RESET"
+    elif machine.reset_cause() == machine.DEEPSLEEP_RESET:
+        last_reset_cause = "DEEPSLEEP_RESET"
+    elif machine.reset_cause() == machine.SOFT_RESET:
+        last_reset_cause = "SOFT_RESET"
+    else:
+        last_reset_cause = "UNDEFINED_RESET"
+
+    jotter.get_jotter().jot("Reset cause: " + last_reset_cause, source_file=__name__)
+
+    print("last_reset_cause=" + last_reset_cause)
+
+
+    # Feed the watchdog
+    wdt.feed()
+
 
     # Set RTC to wakeup at a set interval
     rtc = pyb.RTC()
@@ -142,6 +166,8 @@ def run_mainloop():
 
     pyb.LED(2).on()  # Green LED On
 
+    jotter.get_jotter().jot("Powering off NM3", source_file=__name__)
+
     # Cycle the NM3 power supply on the powermodule
     powermodule = PowerModule()
     powermodule.disable_nm3()
@@ -150,11 +176,18 @@ def run_mainloop():
     pyb.Pin.board.EN_3V3.on()
     pyb.Pin('Y5', pyb.Pin.OUT, value=0)  # enable Y5 Pin as output
     max3221e = MAX3221E(pyb.Pin.board.Y5)
-    max3221e.tx_force_off()  # Disable Tx Driver
+    max3221e.tx_force_on()  # Enable Tx Driver
+
+    # Feed the watchdog
+    wdt.feed()
+
+    jotter.get_jotter().jot("Powering on NM3", source_file=__name__)
 
     utime.sleep_ms(1000)
     powermodule.enable_nm3()
     utime.sleep_ms(7000)  # Await end of bootloader
+
+    jotter.get_jotter().jot("NM3 running", source_file=__name__)
 
     # Set callback for nm3 pin change - line goes high on frame synchronisation
     # make sure it is clear first
@@ -168,6 +201,17 @@ def run_mainloop():
     # nm3_network = Nm3NetworkSimple(nm3_modem)
     # gateway_address = 7
 
+    # Grab address and voltage from the modem
+    nm3_address = nm3_modem.get_address()
+    nm3_voltage = nm3_modem.get_battery_voltage()
+    print("NM3 Address {:03d} Voltage {:0.2f}V.".format(nm3_address, nm3_voltage))
+    jotter.get_jotter().jot("NM3 Address {:03d} Voltage {:0.2f}V.".format(nm3_address, nm3_voltage),
+                            source_file=__name__)
+
+
+    # Feed the watchdog
+    wdt.feed()
+
     # sensor payload
     sensor = sensor_payload.get_sensor_payload_instance()
     # sensor.start_acquisition()
@@ -175,30 +219,25 @@ def run_mainloop():
     # while (not sensor.is_completed()) and (utime.time() < sensor_acquisition_start + 5):
     #    sensor.process_acquisition()
 
+    # Feed the watchdog
+    wdt.feed()
+
     nm3_network = NetProtocol()
-    nm3_network.init_interfaces(nm3_modem, sensor, wdt)
+    nm3_network.init_interfaces(nm3_modem, sensor, wdt)  # This function talks to the modem to get address and voltage
     network_can_go_to_sleep = False
+
+    utime.sleep_ms(100)
+
+    # Feed the watchdog
+    wdt.feed()
 
     # Uptime
     uptime_start = utime.time()
 
-    # Last reset cause
-    last_reset_cause = "PWRON_RESET"
-    if machine.reset_cause() == machine.PWRON_RESET:
-        last_reset_cause = "PWRON_RESET"
-    elif machine.reset_cause() == machine.HARD_RESET:
-        last_reset_cause = "HARD_RESET"
-    elif machine.reset_cause() == machine.WDT_RESET:
-        last_reset_cause = "WDT_RESET"
-    elif machine.reset_cause() == machine.DEEPSLEEP_RESET:
-        last_reset_cause = "DEEPSLEEP_RESET"
-    elif machine.reset_cause() == machine.SOFT_RESET:
-        last_reset_cause = "PWRON_RESET"
-    else:
-        last_reset_cause = "UNDEFINED_RESET"
+
 
     # Turn off the USB
-    pyb.usb_mode(None)
+    # pyb.usb_mode(None)  # Except when in development
 
     # Operating Mode
     #
@@ -251,16 +290,16 @@ def run_mainloop():
 
             if _rtc_callback_flag:
                 _rtc_callback_flag = False  # Clear the flag
+                print("RTC Flag. Powering up NM3 and getting sensor data.")
                 jotter.get_jotter().jot("RTC Flag. Powering up NM3 and getting sensor data.", source_file=__name__)
 
                 # Enable power supply to 232 driver and sensors and sdcard
                 pyb.Pin.board.EN_3V3.on()
-                pyb.Pin('Y5', pyb.Pin.OUT, value=0)  # enable Y5 Pin as output
-                max3221e = MAX3221E(pyb.Pin.board.Y5)
-                max3221e.tx_force_off()  # Disable Tx Driver
+                max3221e.tx_force_on()  # Enable Tx Driver
 
                 # Start Power up NM3
-                network_can_go_to_sleep = False # Make sure we keep NM3 powered until Network says otherwise
+                utime.sleep_ms(100)
+                network_can_go_to_sleep = False  # Make sure we keep NM3 powered until Network says otherwise
                 powermodule.enable_nm3()
                 nm3_startup_time = utime.time()
 
@@ -269,13 +308,18 @@ def run_mainloop():
                 sensor_acquisition_start = utime.time()
                 while (not sensor.is_completed()) and (utime.time() < sensor_acquisition_start + 5):
                     sensor.process_acquisition()
+                    utime.sleep_ms(100)  # yield
 
                 # Wait for completion of NM3 bootup (if it wasn't already powered)
                 while utime.time() < nm3_startup_time + 7:
+                    utime.sleep_ms(100)  # yield
                     pass
 
             # If we're within 30 seconds of the last timestamped NM3 synch arrival then poll for messages.
             if utime.time() < _nm3_callback_seconds + 30:
+                if _nm3_callback_flag:
+                    print("Has received nm3 synch flag.")
+
                 _nm3_callback_flag = False  # clear the flag
 
                 # There may or may not be a message for us. And it could take up to 0.5s to arrive at the uart.
@@ -285,6 +329,7 @@ def run_mainloop():
 
                 while nm3_modem.has_received_packet():
                     # print("Has received nm3 message.")
+                    print("Has received nm3 message.")
                     jotter.get_jotter().jot("Has received nm3 message.", source_file=__name__)
 
                     message_packet = nm3_modem.get_received_packet()
@@ -305,7 +350,11 @@ def run_mainloop():
                             bytes(message_packet.packet_payload[:2]) == b'UN':
                         # Network Packet
 
+                        # Wrap with garbage collection to tidy up memory usage.
+                        import gc
+                        gc.collect()
                         (network_can_go_to_sleep, time_till_next_req_ms) = nm3_network.handle_packet(message_packet)
+                        gc.collect()
 
                         # Update the RTC alarm such that we power up the NM3 and take a sensor reading
                         # ahead of the next network frame.
@@ -331,20 +380,24 @@ def run_mainloop():
                         # Localisation Packet
                         pass  # End of Localisation Packets
 
-            # If too long since last synch and not rtc callback
+            # If too long since last synch and not rtc callback and too long since
             if not _rtc_callback_flag and (utime.time() > _nm3_callback_seconds + 30):
 
                 # Double check the flags before powering things off
                 if (not _rtc_callback_flag) and (not _nm3_callback_flag):
+                    print("Going to sleep.")
                     jotter.get_jotter().jot("Going to sleep.", source_file=__name__)
                     if network_can_go_to_sleep:
+                        print("NM3 powering down.")
                         powermodule.disable_nm3()  # power down the NM3
+                        pass
 
                     # Disable the I2C pullups
                     pyb.Pin('PULL_SCL', pyb.Pin.IN)  # disable 5.6kOhm X9/SCL pull-up
                     pyb.Pin('PULL_SDA', pyb.Pin.IN)  # disable 5.6kOhm X10/SDA pull-up
                     # Disable power supply to 232 driver, sensors, and SDCard
-                    pyb.Pin.board.EN_3V3.off()
+                    max3221e.tx_force_off()  # Disable Tx Driver
+                    # pyb.Pin.board.EN_3V3.off()  # except in dev
                     pyb.LED(2).off()  # Asleep
                     utime.sleep_ms(10)
 
@@ -352,9 +405,9 @@ def run_mainloop():
                     # Feed the watchdog
                     wdt.feed()
                     # Now wait
-                    utime.sleep_ms(10)
+                    utime.sleep_ms(100)
                     # pyb.wfi()  # wait-for-interrupt (can be ours or the system tick every 1ms or anything else)
-                    machine.lightsleep()  # lightsleep - don't use the time as this then overrides the RTC
+                    # machine.lightsleep()  # lightsleep - don't use the time as this then overrides the RTC
 
                 # Wake-up
                 # pyb.LED(2).on()  # Awake
@@ -362,6 +415,7 @@ def run_mainloop():
                 wdt.feed()
                 # Enable power supply to 232 driver, sensors, and SDCard
                 pyb.Pin.board.EN_3V3.on()
+                max3221e.tx_force_on()  # Enable Tx Driver
                 # Enable the I2C pullups
                 pyb.Pin('PULL_SCL', pyb.Pin.OUT, value=1)  # enable 5.6kOhm X9/SCL pull-up
                 pyb.Pin('PULL_SDA', pyb.Pin.OUT, value=1)  # enable 5.6kOhm X10/SDA pull-up
@@ -371,7 +425,7 @@ def run_mainloop():
         except Exception as the_exception:
             import sys
             sys.print_exception(the_exception)
-            #jotter.get_jotter().jot_exception(the_exception)
+            jotter.get_jotter().jot_exception(the_exception)
             pass
             # Log to file
 
