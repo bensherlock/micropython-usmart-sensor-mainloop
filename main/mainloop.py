@@ -62,6 +62,7 @@ def rtc_set_next_alarm_time_s(alarm_time_s_from_now):
 
     if 0 < alarm_time_s_from_now <= 7200:  # above zero and up to two hours
         _rtc_next_alarm_time_s = utime.time() + alarm_time_s_from_now
+        print("_rtc_next_alarm_time_s=" + str(_rtc_next_alarm_time_s) + " time now=" + str(utime.time()))
 
 
 def rtc_set_alarm_period_s(alarm_period_s):
@@ -74,6 +75,7 @@ def rtc_set_alarm_period_s(alarm_period_s):
     else:
         _rtc_next_alarm_time_s = 0  # cancel the alarm
 
+    print("_rtc_next_alarm_time_s=" + str(_rtc_next_alarm_time_s) + " time now=" + str(utime.time()))
 
 _rtc_callback_seconds = 0  # can be used to stay awake for X seconds after the last RTC wakeup
 
@@ -183,9 +185,12 @@ def run_mainloop():
 
     jotter.get_jotter().jot("Powering on NM3", source_file=__name__)
 
-    utime.sleep_ms(1000)
+    utime.sleep_ms(10000)
     powermodule.enable_nm3()
-    utime.sleep_ms(7000)  # Await end of bootloader
+    utime.sleep_ms(10000)  # Await end of bootloader
+
+    # Feed the watchdog
+    wdt.feed()
 
     jotter.get_jotter().jot("NM3 running", source_file=__name__)
 
@@ -197,20 +202,31 @@ def run_mainloop():
     # Serial Port/UART is opened with a 100ms timeout for reading - non-blocking.
     uart = machine.UART(1, 9600, bits=8, parity=None, stop=1, timeout=100)
     nm3_modem = Nm3(input_stream=uart, output_stream=uart)
+    utime.sleep_ms(20)
 
     # nm3_network = Nm3NetworkSimple(nm3_modem)
     # gateway_address = 7
 
     # Grab address and voltage from the modem
     nm3_address = nm3_modem.get_address()
+    utime.sleep_ms(20)
     nm3_voltage = nm3_modem.get_battery_voltage()
+    utime.sleep_ms(20)
     print("NM3 Address {:03d} Voltage {:0.2f}V.".format(nm3_address, nm3_voltage))
     jotter.get_jotter().jot("NM3 Address {:03d} Voltage {:0.2f}V.".format(nm3_address, nm3_voltage),
                             source_file=__name__)
 
+    # Sometimes (maybe from brownout) restarting the modem leaves it in a state where you can talk to it on the
+    # UART fine, but there's no ability to receive incoming acoustic comms until the modem has been fired.
+    # So here we will broadcast an I'm Alive message. Payload: U (for USMART), A (for Alive), Address, B, Battery
+    alive_string = "UA" + "{:03d}".format(nm3_address) + "B{:0.2f}V".format(nm3_voltage)
+    nm3_modem.send_broadcast_message(alive_string.encode('utf-8'))
 
     # Feed the watchdog
     wdt.feed()
+
+    # Delay for transmission of broadcast packet
+    utime.sleep_ms(500)
 
     # sensor payload
     sensor = sensor_payload.get_sensor_payload_instance()
@@ -290,7 +306,7 @@ def run_mainloop():
 
             if _rtc_callback_flag:
                 _rtc_callback_flag = False  # Clear the flag
-                print("RTC Flag. Powering up NM3 and getting sensor data.")
+                print("RTC Flag. Powering up NM3 and getting sensor data." + " time now=" + str(utime.time()))
                 jotter.get_jotter().jot("RTC Flag. Powering up NM3 and getting sensor data.", source_file=__name__)
 
                 # Enable power supply to 232 driver and sensors and sdcard
@@ -356,16 +372,19 @@ def run_mainloop():
                         (network_can_go_to_sleep, time_till_next_req_ms) = nm3_network.handle_packet(message_packet)
                         gc.collect()
 
+                        print("network_can_go_to_sleep=" + str(network_can_go_to_sleep) + " time_till_next_req_ms=" + str(time_till_next_req_ms))
                         # Update the RTC alarm such that we power up the NM3 and take a sensor reading
                         # ahead of the next network frame.
-                        if 30000 < time_till_next_req_ms:  # more than 30 seconds
+                        if 60000 < time_till_next_req_ms:  # more than 60 seconds
                             # Next RTC wakeup = time_till_next_req_ms/1000 - 20
                             # to take into account the 10second resolution and NM3 powerup time
-                            rtc_seconds_from_now = (time_till_next_req_ms - 20000) / 1000
+                            rtc_seconds_from_now = int((time_till_next_req_ms - 60000) / 1000)
                             rtc_set_next_alarm_time_s(rtc_seconds_from_now)
+                            print("Set RTC alarm with rtc_seconds_from_now=" + str(rtc_seconds_from_now))
                             pass
                         else:
                             # RTC should default to hourly so leave alone.
+                            print("Leaving RTC alarm as default (hourly).")
                             pass
 
                         # Check there's enough time to make it worth powering down the NM3
