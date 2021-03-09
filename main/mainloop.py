@@ -354,14 +354,32 @@ def run_mainloop():
                     message_packet.timestamp_millis = _nm3_callback_millis
                     message_packet.timestamp_micros = _nm3_callback_micros
 
-                    # Process special packets
+                    # Process special packets US
                     if message_packet.packet_payload and bytes(message_packet.packet_payload) == b'USMRT':
                         # print("Reset message received.")
                         jotter.get_jotter().jot("Reset message received.", source_file=__name__)
                         # Reset the device
                         machine.reset()
 
-                    # Send on to submodules: Network/Localisation
+                    if message_packet.packet_payload and bytes(message_packet.packet_payload) == b'USOTA':
+                        # print("OTA message received.")
+                        jotter.get_jotter().jot("OTA message received.", source_file=__name__)
+                        # Write a special flag file to tell us to OTA on reset
+                        try:
+                            with open('.USOTA', 'w') as otaflagfile:
+                                # otaflagfile.write(latest_version)
+                                otaflagfile.close()
+                        except Exception as the_exception:
+                            jotter.get_jotter().jot_exception(the_exception)
+
+                            import sys
+                            sys.print_exception(the_exception)
+                            pass
+
+                        # Reset the device
+                        machine.reset()
+
+                    # Send on to submodules: Network/Localisation UN/UL
                     if message_packet.packet_payload and len(message_packet.packet_payload) > 2 and \
                             bytes(message_packet.packet_payload[:2]) == b'UN':
                         # Network Packet
@@ -416,7 +434,7 @@ def run_mainloop():
                     pyb.Pin('PULL_SDA', pyb.Pin.IN)  # disable 5.6kOhm X10/SDA pull-up
                     # Disable power supply to 232 driver, sensors, and SDCard
                     max3221e.tx_force_off()  # Disable Tx Driver
-                    # pyb.Pin.board.EN_3V3.off()  # except in dev
+                    pyb.Pin.board.EN_3V3.off()  # except in dev
                     pyb.LED(2).off()  # Asleep
                     utime.sleep_ms(10)
 
@@ -424,9 +442,9 @@ def run_mainloop():
                     # Feed the watchdog
                     wdt.feed()
                     # Now wait
-                    utime.sleep_ms(100)
+                    # utime.sleep_ms(100)
                     # pyb.wfi()  # wait-for-interrupt (can be ours or the system tick every 1ms or anything else)
-                    # machine.lightsleep()  # lightsleep - don't use the time as this then overrides the RTC
+                    machine.lightsleep()  # lightsleep - don't use the time as this then overrides the RTC
 
                 # Wake-up
                 # pyb.LED(2).on()  # Awake
