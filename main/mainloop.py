@@ -114,6 +114,21 @@ def nm3_callback(line):
     _nm3_callback_flag = True
 
 
+def send_usmart_alive_message(modem):
+    # Send a standard broadcast Alive message. Usually called on startup and on request by external message.
+    # Grab address and voltage from the modem
+    if modem:
+        nm3_address = modem.get_address()
+        utime.sleep_ms(20)
+        nm3_voltage = modem.get_battery_voltage()
+        utime.sleep_ms(20)
+        # print("NM3 Address {:03d} Voltage {:0.2f}V.".format(nm3_address, nm3_voltage))
+        # jotter.get_jotter().jot("NM3 Address {:03d} Voltage {:0.2f}V.".format(nm3_address, nm3_voltage),
+        #                        source_file=__name__)
+        # So here we will broadcast an I'm Alive message. Payload: U (for USMART), A (for Alive), Address, B, Battery
+        # Plus a version/date so we can determine if an OTA update has worked
+        alive_string = "UA" + "{:03d}".format(nm3_address) + "B{:0.2f}V".format(nm3_voltage) + "REV:2021-03-25T16:14:00"
+        modem.send_broadcast_message(alive_string.encode('utf-8'))
 
 
 # Standard Interface for MainLoop
@@ -219,8 +234,9 @@ def run_mainloop():
     # Sometimes (maybe from brownout) restarting the modem leaves it in a state where you can talk to it on the
     # UART fine, but there's no ability to receive incoming acoustic comms until the modem has been fired.
     # So here we will broadcast an I'm Alive message. Payload: U (for USMART), A (for Alive), Address, B, Battery
-    alive_string = "UA" + "{:03d}".format(nm3_address) + "B{:0.2f}V".format(nm3_voltage)
-    nm3_modem.send_broadcast_message(alive_string.encode('utf-8'))
+    send_usmart_alive_message(nm3_modem)
+
+
 
     # Feed the watchdog
     wdt.feed()
@@ -322,7 +338,7 @@ def run_mainloop():
                 # sensor payload - BME280 and LSM303AGR and VBatt
                 sensor.start_acquisition()
                 sensor_acquisition_start = utime.time()
-                while (not sensor.is_completed()) and (utime.time() < sensor_acquisition_start + 5):
+                while (not sensor.is_completed()) and (utime.time() < sensor_acquisition_start + 6):
                     sensor.process_acquisition()
                     utime.sleep_ms(100)  # yield
 
@@ -378,6 +394,11 @@ def run_mainloop():
 
                         # Reset the device
                         machine.reset()
+
+                    if message_packet.packet_payload and bytes(message_packet.packet_payload) == b'USPNG':
+                        # print("PNG message received.")
+                        jotter.get_jotter().jot("PNG message received.", source_file=__name__)
+                        send_usmart_alive_message(nm3_modem)
 
                     # Send on to submodules: Network/Localisation UN/UL
                     if message_packet.packet_payload and len(message_packet.packet_payload) > 2 and \
