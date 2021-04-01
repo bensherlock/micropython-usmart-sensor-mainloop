@@ -127,7 +127,7 @@ def send_usmart_alive_message(modem):
         #                        source_file=__name__)
         # So here we will broadcast an I'm Alive message. Payload: U (for USMART), A (for Alive), Address, B, Battery
         # Plus a version/date so we can determine if an OTA update has worked
-        alive_string = "UA" + "{:03d}".format(nm3_address) + "B{:0.2f}V".format(nm3_voltage) + "REV:2021-03-25T16:14:00"
+        alive_string = "UA" + "{:03d}".format(nm3_address) + "B{:0.2f}V".format(nm3_voltage) + "REV:2021-04-01T14:54:00"
         modem.send_broadcast_message(alive_string.encode('utf-8'))
 
 
@@ -348,7 +348,7 @@ def run_mainloop():
                     pass
 
             # If we're within 30 seconds of the last timestamped NM3 synch arrival then poll for messages.
-            if utime.time() < _nm3_callback_seconds + 30:
+            if _nm3_callback_flag or (utime.time() < _nm3_callback_seconds + 30):
                 if _nm3_callback_flag:
                     print("Has received nm3 synch flag.")
 
@@ -408,28 +408,32 @@ def run_mainloop():
                         # Wrap with garbage collection to tidy up memory usage.
                         import gc
                         gc.collect()
-                        (network_can_go_to_sleep, time_till_next_req_ms) = nm3_network.handle_packet(message_packet)
+                        (sleepflag, ttnf, network_packet_ignored) = nm3_network.handle_packet(message_packet)
                         gc.collect()
 
-                        print("network_can_go_to_sleep=" + str(network_can_go_to_sleep) + " time_till_next_req_ms=" + str(time_till_next_req_ms))
-                        # Update the RTC alarm such that we power up the NM3 and take a sensor reading
-                        # ahead of the next network frame.
-                        if 60000 < time_till_next_req_ms:  # more than 60 seconds
-                            # Next RTC wakeup = time_till_next_req_ms/1000 - 20
-                            # to take into account the 10second resolution and NM3 powerup time
-                            rtc_seconds_from_now = int((time_till_next_req_ms - 60000) / 1000)
-                            rtc_set_next_alarm_time_s(rtc_seconds_from_now)
-                            print("Set RTC alarm with rtc_seconds_from_now=" + str(rtc_seconds_from_now))
-                            pass
-                        else:
-                            # RTC should default to hourly so leave alone.
-                            print("Leaving RTC alarm as default (hourly).")
-                            pass
+                        if not network_packet_ignored:
+                            network_can_go_to_sleep = sleepflag
+                            time_till_next_req_ms = ttnf
 
-                        # Check there's enough time to make it worth powering down the NM3
-                        if network_can_go_to_sleep and time_till_next_req_ms < 30000:
-                            # if not at least 30 seconds til next frame then we will not power off the modem
-                            network_can_go_to_sleep = False
+                            print("network_can_go_to_sleep=" + str(network_can_go_to_sleep) + " time_till_next_req_ms=" + str(time_till_next_req_ms))
+                            # Update the RTC alarm such that we power up the NM3 and take a sensor reading
+                            # ahead of the next network frame.
+                            if 60000 < time_till_next_req_ms:  # more than 60 seconds
+                                # Next RTC wakeup = time_till_next_req_ms/1000 - 20
+                                # to take into account the 10second resolution and NM3 powerup time
+                                rtc_seconds_from_now = int((time_till_next_req_ms - 60000) / 1000)
+                                rtc_set_next_alarm_time_s(rtc_seconds_from_now)
+                                print("Set RTC alarm with rtc_seconds_from_now=" + str(rtc_seconds_from_now))
+                                pass
+                            else:
+                                # RTC should default to hourly so leave alone.
+                                print("Leaving RTC alarm as default (hourly).")
+                                pass
+
+                            # Check there's enough time to make it worth powering down the NM3
+                            if network_can_go_to_sleep and time_till_next_req_ms < 30000:
+                                # if not at least 30 seconds til next frame then we will not power off the modem
+                                network_can_go_to_sleep = False
 
                         pass  # End of Network Packets
 
