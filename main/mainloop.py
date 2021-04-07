@@ -127,7 +127,7 @@ def send_usmart_alive_message(modem):
         #                        source_file=__name__)
         # So here we will broadcast an I'm Alive message. Payload: U (for USMART), A (for Alive), Address, B, Battery
         # Plus a version/date so we can determine if an OTA update has worked
-        alive_string = "UA" + "{:03d}".format(nm3_address) + "B{:0.2f}V".format(nm3_voltage) + "REV:2021-04-01T14:54:00"
+        alive_string = "UA" + "{:03d}".format(nm3_address) + "B{:0.2f}V".format(nm3_voltage) + "REV:2021-04-07T11:49:00"
         modem.send_broadcast_message(alive_string.encode('utf-8'))
 
 
@@ -443,7 +443,7 @@ def run_mainloop():
                         pass  # End of Localisation Packets
 
             # If too long since last synch and not rtc callback and too long since
-            if not _rtc_callback_flag and (utime.time() > _nm3_callback_seconds + 30):
+            if not _rtc_callback_flag and (not _nm3_callback_flag) and (utime.time() > _nm3_callback_seconds + 30):
 
                 # Double check the flags before powering things off
                 if (not _rtc_callback_flag) and (not _nm3_callback_flag):
@@ -467,9 +467,9 @@ def run_mainloop():
                     # Feed the watchdog
                     wdt.feed()
                     # Now wait
-                    # utime.sleep_ms(100)
+                    utime.sleep_ms(100)
                     # pyb.wfi()  # wait-for-interrupt (can be ours or the system tick every 1ms or anything else)
-                    machine.lightsleep()  # lightsleep - don't use the time as this then overrides the RTC
+                    # machine.lightsleep()  # lightsleep - don't use the time as this then overrides the RTC
 
                 # Wake-up
                 # pyb.LED(2).on()  # Awake
