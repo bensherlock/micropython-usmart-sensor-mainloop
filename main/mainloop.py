@@ -127,7 +127,7 @@ def send_usmart_alive_message(modem):
         #                        source_file=__name__)
         # So here we will broadcast an I'm Alive message. Payload: U (for USMART), A (for Alive), Address, B, Battery
         # Plus a version/date so we can determine if an OTA update has worked
-        alive_string = "UA" + "{:03d}".format(nm3_address) + "B{:0.2f}V".format(nm3_voltage) + "REV:2021-04-07T11:49:00"
+        alive_string = "UA" + "{:03d}".format(nm3_address) + "B{:0.2f}V".format(nm3_voltage) + "REV:2021-04-08T13:27:00"
         modem.send_broadcast_message(alive_string.encode('utf-8'))
 
 
@@ -195,6 +195,17 @@ def run_mainloop():
     max3221e = MAX3221E(pyb.Pin.board.Y5)
     max3221e.tx_force_on()  # Enable Tx Driver
 
+    # Set callback for nm3 pin change - line goes high on frame synchronisation
+    # make sure it is clear first
+    nm3_extint = pyb.ExtInt(pyb.Pin.board.Y3, pyb.ExtInt.IRQ_RISING, pyb.Pin.PULL_DOWN, None)
+    nm3_extint = pyb.ExtInt(pyb.Pin.board.Y3, pyb.ExtInt.IRQ_RISING, pyb.Pin.PULL_DOWN, nm3_callback)
+
+    # Serial Port/UART is opened with a 100ms timeout for reading - non-blocking.
+    # UART is opened before powering up NM3 to ensure legal state of Tx pin.
+    uart = machine.UART(1, 9600, bits=8, parity=None, stop=1, timeout=100)
+    nm3_modem = Nm3(input_stream=uart, output_stream=uart)
+    utime.sleep_ms(20)
+
     # Feed the watchdog
     wdt.feed()
 
@@ -209,15 +220,7 @@ def run_mainloop():
 
     jotter.get_jotter().jot("NM3 running", source_file=__name__)
 
-    # Set callback for nm3 pin change - line goes high on frame synchronisation
-    # make sure it is clear first
-    nm3_extint = pyb.ExtInt(pyb.Pin.board.Y3, pyb.ExtInt.IRQ_RISING, pyb.Pin.PULL_DOWN, None)
-    nm3_extint = pyb.ExtInt(pyb.Pin.board.Y3, pyb.ExtInt.IRQ_RISING, pyb.Pin.PULL_DOWN, nm3_callback)
 
-    # Serial Port/UART is opened with a 100ms timeout for reading - non-blocking.
-    uart = machine.UART(1, 9600, bits=8, parity=None, stop=1, timeout=100)
-    nm3_modem = Nm3(input_stream=uart, output_stream=uart)
-    utime.sleep_ms(20)
 
     # nm3_network = Nm3NetworkSimple(nm3_modem)
     # gateway_address = 7
@@ -467,9 +470,9 @@ def run_mainloop():
                     # Feed the watchdog
                     wdt.feed()
                     # Now wait
-                    utime.sleep_ms(100)
+                    #utime.sleep_ms(100)
                     # pyb.wfi()  # wait-for-interrupt (can be ours or the system tick every 1ms or anything else)
-                    # machine.lightsleep()  # lightsleep - don't use the time as this then overrides the RTC
+                    machine.lightsleep()  # lightsleep - don't use the time as this then overrides the RTC
 
                 # Wake-up
                 # pyb.LED(2).on()  # Awake
