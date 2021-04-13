@@ -52,6 +52,7 @@ micropython.alloc_emergency_exception_buf(100)
 # https://docs.micropython.org/en/latest/reference/isr_rules.html#the-emergency-exception-buffer
 
 
+_env_variables = None
 _rtc_callback_flag = False
 _rtc_alarm_period_s = 10
 _rtc_next_alarm_time_s = 0
@@ -131,11 +132,19 @@ def send_usmart_alive_message(modem):
         modem.send_broadcast_message(alive_string.encode('utf-8'))
 
 
+# - def set_environment_variables()
+def set_environment_variables(env_variables_dict=None):
+    """Set a global dictionary of variables."""
+    global _env_variables
+    _env_variables = env_variables_dict
+
+
 # Standard Interface for MainLoop
 # - def run_mainloop() : never returns
 def run_mainloop():
     """Standard Interface for MainLoop. Never returns."""
 
+    global _env_variables
     global _rtc_callback_flag
     global _rtc_callback_seconds
     global _nm3_callback_flag
@@ -402,6 +411,28 @@ def run_mainloop():
                         # print("PNG message received.")
                         jotter.get_jotter().jot("PNG message received.", source_file=__name__)
                         send_usmart_alive_message(nm3_modem)
+
+                    if message_packet.packet_payload and bytes(message_packet.packet_payload) == b'USMOD':
+                        # print("MOD message received.")
+                        jotter.get_jotter().jot("MOD message received.", source_file=__name__)
+                        # Send the installed modules list as single packets with 1 second delay between each -
+                        # Only want to be calling this after doing an OTA command and ideally not in the sea.
+
+                        nm3_address = nm3_modem.get_address()
+
+                        if _env_variables and "installedModules" in _env_variables:
+                            installed_modules = _env_variables["installedModules"]
+                            for (mod, version) in installed_modules:
+                                mod_string = "UM" + "{:03d}".format(nm3_address) + ":" + str(mod) + ":" \
+                                             + str(version if version else "None")
+                                nm3_modem.send_broadcast_message(mod_string.encode('utf-8'))
+
+                                # delay whilst sending
+                                utime.sleep_ms(1000)
+
+                                # Feed the watchdog
+                                wdt.feed()
+
 
                     # Send on to submodules: Network/Localisation UN/UL
                     if message_packet.packet_payload and len(message_packet.packet_payload) > 2 and \
