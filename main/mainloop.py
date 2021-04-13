@@ -422,16 +422,17 @@ def run_mainloop():
 
                         if _env_variables and "installedModules" in _env_variables:
                             installed_modules = _env_variables["installedModules"]
-                            for (mod, version) in installed_modules:
-                                mod_string = "UM" + "{:03d}".format(nm3_address) + ":" + str(mod) + ":" \
-                                             + str(version if version else "None")
-                                nm3_modem.send_broadcast_message(mod_string.encode('utf-8'))
+                            if installed_modules:
+                                for (mod, version) in installed_modules.items():
+                                    mod_string = "UM" + "{:03d}".format(nm3_address) + ":" + str(mod) + ":" \
+                                                 + str(version if version else "None")
+                                    nm3_modem.send_broadcast_message(mod_string.encode('utf-8'))
 
-                                # delay whilst sending
-                                utime.sleep_ms(1000)
+                                    # delay whilst sending
+                                    utime.sleep_ms(1000)
 
-                                # Feed the watchdog
-                                wdt.feed()
+                                    # Feed the watchdog
+                                    wdt.feed()
 
 
                     # Send on to submodules: Network/Localisation UN/UL
