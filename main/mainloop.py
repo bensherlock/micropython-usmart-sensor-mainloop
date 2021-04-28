@@ -348,6 +348,7 @@ def run_mainloop():
                 nm3_startup_time = utime.time()
 
                 # sensor payload - BME280 and LSM303AGR and VBatt
+                utime.sleep_ms(500)  # Allow sensors to startup before starting acquisition.
                 sensor.start_acquisition()
                 sensor_acquisition_start = utime.time()
                 while (not sensor.is_completed()) and (utime.time() < sensor_acquisition_start + 6):
@@ -434,6 +435,31 @@ def run_mainloop():
                                     # Feed the watchdog
                                     wdt.feed()
 
+                    if message_packet.packet_payload and bytes(message_packet.packet_payload) == b'USCALDO':
+                        # print("CAL message received.")
+                        jotter.get_jotter().jot("CAL message received.", source_file=__name__)
+
+                        nm3_address = nm3_modem.get_address()
+
+                        # Reply with an acknowledgement then start the calibration
+                        msg_string = "USCALMSG" + "{:03d}".format(nm3_address) + ":Starting Calibration"
+                        nm3_modem.send_broadcast_message(msg_string.encode('utf-8'))
+                        # delay whilst sending
+                        utime.sleep_ms(1000)
+                        # Feed the watchdog
+                        wdt.feed()
+                        # start calibration
+                        (x_min, x_max, y_min, y_max, z_min, z_max) = sensor.do_calibration(duration=20)
+                        # Feed the watchdog
+                        wdt.feed()
+                        # magneto values are int16
+                        caldata_string = "USCALDATA" + "{:03d}".format(nm3_address) + ":" \
+                                         + "{:06d},{:06d},{:06d},{:06d},{:06d},{:06d}".format(x_min, x_max,
+                                                                                              y_min, y_max,
+                                                                                              z_min, z_max)
+                        nm3_modem.send_broadcast_message(caldata_string.encode('utf-8'))
+                        # delay whilst sending
+                        utime.sleep_ms(1000)
 
                     # Send on to submodules: Network/Localisation UN/UL
                     if message_packet.packet_payload and len(message_packet.packet_payload) > 2 and \
@@ -454,7 +480,7 @@ def run_mainloop():
                             # Update the RTC alarm such that we power up the NM3 and take a sensor reading
                             # ahead of the next network frame.
                             if 60000 < time_till_next_req_ms:  # more than 60 seconds
-                                # Next RTC wakeup = time_till_next_req_ms/1000 - 20
+                                # Next RTC wakeup = time_till_next_req_ms/1000 - 60
                                 # to take into account the 10second resolution and NM3 powerup time
                                 rtc_seconds_from_now = int((time_till_next_req_ms - 60000) / 1000)
                                 rtc_set_next_alarm_time_s(rtc_seconds_from_now)
