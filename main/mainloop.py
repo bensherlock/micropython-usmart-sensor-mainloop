@@ -282,7 +282,7 @@ def run_mainloop():
 
 
     # Turn off the USB
-    # pyb.usb_mode(None)  # Except when in development
+    pyb.usb_mode(None)  # Except when in development
 
     # Operating Mode
     #
