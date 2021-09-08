@@ -34,6 +34,7 @@
 
 import pyb
 import machine
+import math
 import utime
 
 from pybd_expansion.main.max3221e import MAX3221E
@@ -185,7 +186,7 @@ def run_mainloop():
     rtc = pyb.RTC()
     rtc.init()  # reinitialise - there were bugs in firmware. This wipes the datetime.
     # A default wakeup to start with. To be overridden by network manager/sleep manager
-    rtc.wakeup(10 * 1000, rtc_callback)  # milliseconds - # Every 10 seconds
+    rtc.wakeup(2 * 1000, rtc_callback)  # milliseconds - # Every 2 seconds
 
     rtc_set_alarm_period_s(60 * 60)  # Every 60 minutes to do the sensors by default
     _rtc_callback_flag = True  # Set the flag so we do a status message on startup.
@@ -482,7 +483,7 @@ def run_mainloop():
                             if 60000 < time_till_next_req_ms:  # more than 60 seconds
                                 # Next RTC wakeup = time_till_next_req_ms/1000 - 60
                                 # to take into account the 10second resolution and NM3 powerup time
-                                rtc_seconds_from_now = int((time_till_next_req_ms - 60000) / 1000)
+                                rtc_seconds_from_now = math.floor((float(time_till_next_req_ms) - 60000.0) / 1000.0)
                                 rtc_set_next_alarm_time_s(rtc_seconds_from_now)
                                 print("Set RTC alarm with rtc_seconds_from_now=" + str(rtc_seconds_from_now))
                                 pass
