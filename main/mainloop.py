@@ -354,6 +354,8 @@ def run_mainloop():
                 sensor_acquisition_start = utime.time()
                 while (not sensor.is_completed()) and (utime.time() < sensor_acquisition_start + 6):
                     sensor.process_acquisition()
+                    # Feed the watchdog
+                    wdt.feed()
                     utime.sleep_ms(100)  # yield
 
                 # Wait for completion of NM3 bootup (if it wasn't already powered)
